@@ -8,6 +8,12 @@ import adafruit_bno055
 import csv
 import datetime
 
+import RPi.GPIO as GPIO
+
+GPIO.setwarnings(False)
+GPIO.setmode(GPIO.BOARD)
+GPIO.setup(17, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+
 # Initialize I2C connection
 i2c = busio.I2C(board.SCL, board.SDA)  # Uses GPIO2 (SDA) and GPIO3 (SCL)
 sensor = adafruit_bno055.BNO055_I2C(i2c, address=0x28)  # Default BNO055 I2C address
@@ -42,26 +48,30 @@ try:
             
         writer.writerow(["Time", "AccX", "AccY", "AccZ", "GyroX", "GyroY", "GyroZ"])
         
+    
+    
+    
     while True:
         
-        
-        with open('imu_output.csv', 'a', newline="") as file:
-            writer = csv.writer(file)
-            
-            #writer.writerow(["Time", "AccX", "AccY", "AccZ", "GyroX", "GyroY", "GyroZ"])
-            
-            x, y, z = get_acceleration()
-            t = get_temperature()
-            a, b, c = get_gyroscope()
-            print(f"Acceleration -> X: {x:.2f} m/s², Y: {y:.2f} m/s², Z: {z:.2f} m/s²")
-            print(f"Temperature -> T: {t:.2f}")
-            print(f"Gyroscope -> X: {a:.2f} rad/s, Y: {b:.2f} rad/s, Z: {c:.2f} rad/s")
-            print("~~~~")
-            
-            writer.writerow([datetime.datetime.now(), x, y, z, a, b, c])
+        if GPIO.input(17) == GPIO.HIGH:
+            print("Started")
+            with open('imu_output.csv', 'a', newline="") as file:
+                writer = csv.writer(file)
+                
+                #writer.writerow(["Time", "AccX", "AccY", "AccZ", "GyroX", "GyroY", "GyroZ"])
+                
+                x, y, z = get_acceleration()
+                t = get_temperature()
+                a, b, c = get_gyroscope()
+                print(f"Acceleration -> X: {x:.2f} m/s², Y: {y:.2f} m/s², Z: {z:.2f} m/s²")
+                print(f"Temperature -> T: {t:.2f}")
+                print(f"Gyroscope -> X: {a:.2f} rad/s, Y: {b:.2f} rad/s, Z: {c:.2f} rad/s")
+                print("~~~~")
+                
+                writer.writerow([datetime.datetime.now(), x, y, z, a, b, c])
 
-            
-            time.sleep(0.1)  # Read every 0.1 seconds
+                
+                time.sleep(0.1)  # Read every 0.1 seconds
         
 
 except KeyboardInterrupt:
