@@ -31,6 +31,7 @@ def extract_csv_data(filename):
     # Convert each column into a NumPy array and assign it to a variable dynamically
     for col in df.columns:
         globals()[col] = df[col].dropna().to_numpy()
+        print("\n~~~\nExtracting data from csv file...")
         print(f"Created variable: {col}")
 
 
@@ -116,9 +117,15 @@ def clean_time(time):
     time = [s[11:] for s in time]
 
     time = list(time)
-    print(time[:10])
-
-    time_as_object = [dt.strptime(t, "%H:%M:%S.%f") for t in time]
+    
+    
+    time_as_object = []
+    for t in time:
+        try:
+            time_as_object.append(dt.strptime(t, "%H:%M:%S.%f"))
+        except ValueError:
+             time_as_object.append(dt.strptime(t, "%H:%M:%S"))
+    
 
     return time_as_object
 
@@ -250,7 +257,6 @@ def distance_traveled_1d(Time, data):
     for i, acc in enumerate(data):
         distance = distance + data[i] * freq
 
-    print(distance)
     return distance
 
 
@@ -261,8 +267,7 @@ def get_period(datax, datay):
     try:
         for i in range(len(peaks) - 1):
             dt = np.append(dt, datax[peaks[i + 1]] - datax[peaks[i]])
-        print(type(dt))
-        print(dt)
+
         stats(dt, "period")
 
         plt.plot(peaks, datay[peaks], "xr")
@@ -293,13 +298,15 @@ def stats(data, name="name"):
 
 # Example usage
 if __name__ == "__main__":
-    filename = "/Users/jonathanfascetti/Desktop/Senior Design/jonathan_wear_am03242025.csv"
+    filename = "/home/gayt/Desktop/imu_output.csv"
     # Replace with your CSV file name
     extract_csv_data(filename)
 
     trunc = 0
     length = len(AccX)
+    print("\n~~~\nSize of data set:")
     print("length: " + str(length))
+    print("~~~")
 
     # parse the time to remove the date and just have the time itself.  Also "zero" it to the first entry
     Time_clean = clean_time(Time[trunc:length])
@@ -354,14 +361,17 @@ if __name__ == "__main__":
     )
 
     ## print to terminal if any datapoints were removed because they exceeded the threshold
+    print("\n~~~")
+    print("Data points excluded due to crossing threshold for each axis:")
     print(
         f"AccX: {thresh_AX}; exl: {val_AX} \nAccY: {thresh_AY}; exl: {val_AY} \nAccZ: {thresh_AZ}; exl: {val_AZ} \nGyroX: {thresh_GX}; exl: {val_GX} \nGyroY: {thresh_GY}; exl: {val_GY} \nGyroZ: {thresh_GZ}; exl: {val_GZ} \n"
     )
+    print("~~~\n")
 
     ## smooth data type can be "not_smoothed", "savgol", "moving_avg", "gaussian", "exp_moving_avg"
     # Time, AccZ = smooth_data(Time, AccZ, "not_smoothed")
 
     ## plot all on a 6-pane figure
-    # plot_all(Time, AccX, AccY, AccZ, GyroX, GyroY, GyroZ)
+    plot_all(Time, AccX, AccY, AccZ, GyroX, GyroY, GyroZ)
 
-    plot_one(Time, AccY, "Time", "AccX")
+    #plot_one(Time, AccY, "Time", "AccX")
