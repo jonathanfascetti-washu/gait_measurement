@@ -11,6 +11,8 @@ from scipy.ndimage import gaussian_filter
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
 from scipy.signal import find_peaks
+import scipy.stats
+from scipy.interpolate import interp1d
 
 import csv
 
@@ -61,7 +63,8 @@ def plot_all(Time, AccX, AccY, AccZ, GyroX, GyroY, GyroZ):
 
 
 def plot_one(x, y, xname, yname):
-    plt.plot(x, y, marker="o", linestyle="-")
+    # plt.plot(x, y, marker="o", linestyle="-")
+    plt.plot(x, y)
     plt.title(f"{yname} over {xname}")
     plt.xlabel(xname)
     plt.ylabel(yname)
@@ -117,15 +120,13 @@ def clean_time(time):
     time = [s[11:] for s in time]
 
     time = list(time)
-    
-    
+
     time_as_object = []
     for t in time:
         try:
             time_as_object.append(dt.strptime(t, "%H:%M:%S.%f"))
         except ValueError:
-             time_as_object.append(dt.strptime(t, "%H:%M:%S"))
-    
+            time_as_object.append(dt.strptime(t, "%H:%M:%S"))
 
     return time_as_object
 
@@ -138,7 +139,7 @@ def zero_time(time):
 
 def smooth_data(Time, data, function):
     if function == "savgol":
-        window = 25
+        window = 8
         order = 3
         smooth = signal.savgol_filter(data, window, order)
     elif function == "moving_avg":
@@ -217,7 +218,7 @@ def gpt_compare_smoothing_methods(x, y):
     axs[0].grid()
 
     # Savitzky-Golay
-    for window_size, poly in [(11, 2), (21, 3)]:
+    for window_size, poly in [(11, 2), (8, 3)]:
         y_sg = savgol_filter(y, window_size, poly, mode="nearest")
         axs[1].plot(x, y_sg, label=f"Win={window_size}, Poly={poly}")
     axs[1].set_title("Savitzky-Golay")
@@ -261,7 +262,9 @@ def distance_traveled_1d(Time, data):
 
 
 def get_period(datax, datay):
-    peaks, _ = find_peaks(datay, prominence=15)
+    rms = np.sqrt(np.sum(np.square(datay)) / len(datay))
+    print("\n~~~\nRoot Mean Squared:\n" + str(rms) + "\n~~~\n")
+    peaks, _ = find_peaks(datay, prominence=15, height=rms)
 
     dt = np.zeros(0)
     try:
@@ -296,9 +299,236 @@ def stats(data, name="name"):
     print(" ~~~ ")
 
 
+def get_avalanches(datax, datay):
+    datay = np.abs(datay)  # take absolute value of all data
+
+    q = 75  # percentile
+    thresh = np.percentile(datay, q)
+    print("thresh: " + str(thresh))
+    plot(datax, datay)
+    avalanche = (
+        []
+    )  # where each index is a tuple, wiht the start and end indieces
+    start = 0
+    end = 0
+    window = 0
+
+    for i, val in enumerate(datay):
+        if val > thresh and i > end:
+            start = i
+            # print("\nstart: " + str(start))
+
+            for j in range(len(datay) - i):
+                if i + j >= len(datay):  # prevent out of bounds error
+                    break
+                if datay[i + j] < thresh:
+                    end = i + j
+                    # print("end: " + str(end))
+                    break
+            else:
+                end = min(i + window - 1, len(datay) - 1)
+                # print("~window maxed out~end: " + str(end))
+            avalanche.append((start, end))
+
+    """ Old, overlapping avalanches
+    for i, val in enumerate(datay):
+        start = 0
+        end = 0
+
+        if val > median and i > end:
+            start = i
+            print("\nstart: " + str(start))
+
+            for j in range(window):
+                if i + j >= len(datay):  # prevent out of bounds error
+                    break
+                if datay[i + j] < median:
+                    end = i + j
+                    print("end: " + str(end))
+
+                    break
+                else:
+                    end = min(i + window - 1, len(datay) - 1)
+                    print("~window maxed out~end: " + str(end))
+            avalanche.append((start, end))
+    """
+
+    binary_list = [1 if i > thresh else 0 for i in datay]
+
+    analysis_array = np.array([datay.tolist(), binary_list, datax])
+    # print("~~~\nAnalysis numPy array:\n")
+    # np.set_printoptions(threshold=np.inf)
+    # print(analysis_array)
+    # print("~~~")
+
+    # plot
+
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, figsize=(8, 6))
+
+    # First plot
+    ax1.plot(datax, datay.tolist(), label="Dataset Raw", color="blue")
+    ax1.set_ylabel("Raw values")
+    ax1.set_title("Stacked Plots of Raw and Bianry")
+    ax1.legend()
+    ax1.grid(True)
+
+    # Second plot
+    ax2.plot(datax, binary_list, label="Dataset Binary", color="green")
+    ax2.set_xlabel("Time values")
+    ax2.set_ylabel("Binary values")
+    ax2.legend()
+    ax2.grid(True)
+
+    # Third plot
+    ax3.plot(datax, datax, label="Dataset Time", color="blue")
+    ax3.set_ylabel("Time values")
+    ax3.set_title("Stacked Plots of Raw and Time")
+    ax3.legend()
+    ax3.grid(True)
+
+    # Adjust layout
+    plt.tight_layout()
+    plt.show()
+
+    return avalanche, analysis_array
+
+
+def get_avalanches_window(datax, datay):
+    datay = np.abs(datay)
+    median = np.median(datay)
+    fac = 4  # scaling factor
+    print("median / fac: " + str(median / fac))
+    # plot(datax, datay)
+    avalanche = []  # Store (start, end) index pairs
+    window = 10
+    start = 0
+    end = 0
+
+    i = 0
+    while i < len(datay):
+        if datay[i] > median / fac and i > end:
+            start = i  # Start of an avalanche
+            end = i  # Initialize end at the same point
+
+            # Look ahead within the window to see where the avalanche extends
+            for j in range(1, window):
+                if i + j >= len(datay):  # Prevent out-of-bounds access
+                    break
+                if datay[i + j] > median / fac:
+                    end = i + j  # Extend the end position
+
+            avalanche.append((start, end))
+            i = end  # Skip ahead to avoid overlapping detections
+        i += 1  # Move to the next data point
+
+    """ Old, overlapping avalanches
+    for i, val in enumerate(datay):
+        start = 0
+        end = 0
+
+        if val > median and i > end:
+            start = i
+            print("\nstart: " + str(start))
+
+            for j in range(window):
+                if i + j >= len(datay):  # prevent out of bounds error
+                    break
+                if datay[i + j] < median:
+                    end = i + j
+                    print("end: " + str(end))
+
+                    break
+                else:
+                    end = min(i + window - 1, len(datay) - 1)
+                    print("~window maxed out~end: " + str(end))
+            avalanche.append((start, end))
+    """
+    print("~~~\nAvalanches found:")
+    print(avalanche)
+    print("~~~")
+    return avalanche
+
+
+def plot_avalanches(avalanche):
+    # Compute avalanche sizes
+    sizes = np.array([end - start for start, end in avalanche])
+
+    # Get unique sizes and their frequencies manually
+    unique_sizes = np.unique(sizes)
+    frequencies = np.array([np.sum(sizes == size) for size in unique_sizes])
+
+    # Scatter plot on log-log scale
+    plt.figure(figsize=(7, 5))
+    plt.scatter(unique_sizes, frequencies, color="blue", alpha=0.7)
+
+    # Set log-log scale
+    plt.xscale("log")
+    plt.yscale("log")
+
+    # Labels and formatting
+    plt.xlabel("Avalanche Size (log scale)")
+    plt.ylabel("Frequency (log scale)")
+    plt.title("Log-Log Scatter Plot of Avalanche Sizes")
+    plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+
+    plt.show()
+
+
+def merge_axes(x, y, z):
+    merged = (x + y + z) / 3
+
+    return merged
+
+
+def interpolate_data(data1, data2):
+    """
+    Takes in two lists of (x, y) tuples of different sizes and randomly selects n values from the larger set,
+    where n is the size of the smaller set. Returns the two datasets with matched sizes.
+    """
+    # Determine the smaller and larger dataset
+    if len(data1) < len(data2):
+        small_data, large_data = data1, data2
+    else:
+        small_data, large_data = data2, data1
+
+    # Randomly select n points from the larger dataset
+    n = len(small_data)
+    sampled_indices = np.random.choice(
+        len(large_data), size=n, replace=False
+    )
+    sampled_data = [large_data[i] for i in sampled_indices]
+
+    return small_data, sampled_data
+
+
+def compute_icc(data1, data2):
+    """
+    Computes the Intraclass Correlation Coefficient (ICC) for two datasets of (x, y) tuples.
+    The datasets are first resized using interpolate_data() before computing ICC.
+    """
+    # Ensure both datasets have the same number of points
+    matched_data1, matched_data2 = interpolate_data(data1, data2)
+
+    # Extract only the y-values for ICC computation
+    y1 = np.array([point[1] for point in matched_data1])
+    y2 = np.array([point[1] for point in matched_data2])
+
+    # Compute mean and variance
+    mean_y1, mean_y2 = np.mean(y1), np.mean(y2)
+    var_y1, var_y2 = np.var(y1, ddof=1), np.var(y2, ddof=1)
+
+    # Compute covariance
+    covariance = np.cov(y1, y2, ddof=1)[0, 1]
+
+    # Compute ICC
+    icc = (2 * covariance) / (var_y1 + var_y2)
+
+    return icc
+
+
 # Example usage
 if __name__ == "__main__":
-    filename = "/home/gayt/Desktop/imu_output.csv"
+    filename = "/Users/jonathanfascetti/Desktop/Senior Design/jonathan_procedure1_04032025.csv"
     # Replace with your CSV file name
     extract_csv_data(filename)
 
@@ -335,16 +565,16 @@ if __name__ == "__main__":
     Time = zero_time(Time_clean[index_start:index_end])
 
     # This code finds the average and std in time intervals
-    """
     diff = []
     for i, t in enumerate(Time):
         if i < 100:
             diff.append(Time[i + 1] - Time[i])
 
-    print("Average difference in time: " + str(sum(diff) / len(diff)))
+    print("\n~~~\nAverage difference in time: " + str(sum(diff) / len(diff)))
     print("Standard deviation in difference in times: " + str(np.std(diff)))
     print("Maximum interval: " + str(max(diff)))
-    """
+    print("Minimum interval: " + str(min(diff)))
+    print("~~~")
 
     # Threshold all directions of data and truncate first few values (not all start right at zero)
     AccX, thresh_AX, val_AX = threshold(AccX[index_start:index_end])
@@ -368,10 +598,15 @@ if __name__ == "__main__":
     )
     print("~~~\n")
 
-    ## smooth data type can be "not_smoothed", "savgol", "moving_avg", "gaussian", "exp_moving_avg"
-    # Time, AccZ = smooth_data(Time, AccZ, "not_smoothed")
+    # smooth data type can be "not_smoothed", "savgol", "moving_avg", "gaussian", "exp_moving_avg"
+    # Time, AccX = gpt_compare_smoothing_methods(Time, AccX)
 
-    ## plot all on a 6-pane figure
-    plot_all(Time, AccX, AccY, AccZ, GyroX, GyroY, GyroZ)
+    # merged = merge_axes(GyroX, GyroY, GyroZ)
+    # plot_all(Time, AccX, AccY, AccZ, GyroX, GyroY, GyroZ)
 
-    #plot_one(Time, AccY, "Time", "AccX")
+    Time, AccX = smooth_data(Time, np.abs(AccX), "savgol")
+
+    avalanches_1, anaylsis_array = get_avalanches(Time, AccX)
+    plot_avalanches(avalanches_1)
+
+    np.save("jonathan_03312025_3xn_x_axis.npy", anaylsis_array)
